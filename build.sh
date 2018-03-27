@@ -7,6 +7,7 @@ usage () {
     echo "                               i am not sure yet                                                  "
 }
 
+## docker and nvidia-docker
 do_prepare_env() {
     echo "do_prepare_env start"
     
@@ -25,7 +26,6 @@ do_prepare_env() {
     tee /etc/apt/sources.list.d/nvidia-docker.list
     
     apt-get update
-    
     
     if ! [ -x "$(command -v docker)" ]; then
         curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add -
@@ -46,19 +46,26 @@ do_prepare_env() {
     
     apt-get install -y nvidia-docker2
     pkill -SIGHUP dockerd
-    
+
     echo "do_prepare_env done"
 }
 
+#cuda and nvidia driver
 do_setup_tools()
 {
     echo "do_setup_tools start"
     
     pushd ${UPSTREAM_DIR}
     
+    wget -nc ${CUDA_DEB_URL}
+
+    sudo dpkg -i ${CUDA_DEB_PACK}
+    
     add-apt-repository ppa:graphics-drivers/ppa -y
+    
     apt-get update
-    apt-get install ${HOST_NVIDIA_DRIVER_VER}
+    apt-get install cuda nvidia-cuda-toolkit -y 
+    apt-get install ${HOST_NVIDIA_DRIVER_VER} -y 
     
     popd
     
@@ -68,12 +75,9 @@ do_setup_tools()
 do_setup_nvidia_docker() {
     echo "do_setup_nvidia_docker start"
     
-    docker build -t floydhub/dl-docker:gpu -f Dockerfile.gpu .
+    docker pull ${BUILD_DOCKER_REF_NAME}
 
-    docker run  --name ${BUILD_DOCKER_CONTAINER_NAME} -d -t -p ${BUILD_DOCKER_SSH_PORT}:22 -v $PWD:/opt:z ${BUILD_DOCKER_REF_NAME}:${BUILD_DOCKER_VERSION}
-
-    nvidia-docker run --name ${BUILD_DOCKER_CONTAINER_NAME}-it -p ${BUILD_DOCKER_IPYTHON_PORT}:${BUILD_DOCKER_IPYTHON_PORT} \ 
-            -p ${BUILD_DOCKER_TENSORBOARD_PORT}:${BUILD_DOCKER_TENSORBOARD_PORT} -p ${BUILD_DOCKER_SSH_PORT}:22 -v ${PWD}:/opt:z floydhub/dl-docker:gpu
+    nvidia-docker run -it -p ${BUILD_DOCKER_SSH_PORT}:22 -v ${PWD}:/opt:z ${BUILD_DOCKER_REF_NAME} bash
     
     echo "do_setup_nvidia_docker done"
 }
@@ -103,6 +107,20 @@ do_setup_jenkins() {
     echo "do_setup_jenkins done"
 }
 
+do_setup_prepare_externals() {
+    echo "do_setup_prepare_externals start"
+
+    pushd ${UPSTREAM_DIR}
+
+    git clone ${ACCIDENT_MODEL_GIT}
+
+    cd 
+
+    popd
+
+    echo "do_setup_prepare_externals done" 
+}
+
 do_run() {
     echo "do_run start"
 
@@ -123,7 +141,7 @@ fi
 
 source build.config
 
-[ -d $UPSTREAM_DIR ] || mkdir -p $UPSTREAM_DIR
+mkdir -p $UPSTREAM_DIR
 
 # Process all commands.
 while true ; do
@@ -136,10 +154,17 @@ while true ; do
             do_setup_jenkins
             shift
             ;;
+        run_docker)
+            do_setup_nvidia_docker
+            shift
+            ;;
+        prepare_externals)
+            do_setup_prepare_externals
+            shift
+            ;;
         run)
             do_run
             shift
-            break
             ;;
         *)
             if [[ -n "$1" ]]; then
